@@ -1,5 +1,5 @@
 ---
-name: bbc-mcp-tool
+name: bbc-skill-tool
 description: >-
   Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.0.
   Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI.
