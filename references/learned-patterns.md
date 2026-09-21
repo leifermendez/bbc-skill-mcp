@@ -1,4 +1,4 @@
-# Learned Patterns — v2.1
+# Learned Patterns — v2.2
 
 Production patterns from real deployments. None of these are documented in the BBC
 official docs or the upstream v2.0 skill; they were reverse-engineered from working
@@ -220,7 +220,7 @@ Precision is best-effort per category and product family, not per SKU. Acceptabl
 ## 8. Auditing live bots ("how many bots are prendidos?")
 
 ```
-1. builderbot_list_projects() → get all project IDs
+1. builderbot_project({action: "list"}) → get all project uuids
 2. For each: builderbot_deploy({projectId, action: "status"})
 3. Count where status == "CONNECTED"
 ```

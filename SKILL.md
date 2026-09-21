@@ -1,11 +1,13 @@
 ---
 name: bbc-skill-tool
-description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.1. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, BBC scaffolding files, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
+description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.2. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, BBC scaffolding files, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
 ---
 
-# BBC MCP Tool v2.1 — Safe-by-Default WhatsApp Bot Builder
+# BBC MCP Tool v2.2 — Safe-by-Default WhatsApp Bot Builder
 
-> **v2.1 changelog (vs v2.0):** Corrected `EVENTS.*` uniqueness rule (it's only the literal system event that must be unique, not "action-style" flows). Replaced the simplified `add_chatpdf` `assistant` config with the real `plugins.openai.*` structure. Added new sections: **Routing from add_chatpdf rules**, **System Variables**, **Deploy Status Diagnostics**, **EVENTS.MEDIA with vision**, **Google Calendar native answer**, **Outbound Messaging REST API**, **`_capture_conditional_` trigger**. See `references/learned-patterns.md` for the practical patterns these unlock.
+> **v2.2 changelog (vs v2.1):** Project tools were unified into `builderbot_project` with `action`. `builderbot_list_projects` and `builderbot_create_project` no longer exist — calling them returns `unknown_tool` with the replacement. Added `builderbot_docs`, `builderbot_sanity_check`, and `builderbot_read_logs`. See `references/learned-patterns.md` for production patterns.
+
+> **v2.1 changelog (vs v2.0):** Corrected `EVENTS.*` uniqueness rule (it's only the literal system event that must be unique, not "action-style" flows). Replaced the simplified `add_chatpdf` `assistant` config with the real `plugins.openai.*` structure. Added new sections: **Routing from add_chatpdf rules**, **System Variables**, **Deploy Status Diagnostics**, **EVENTS.MEDIA with vision**, **Google Calendar native answer**, **Outbound Messaging REST API**, **`_capture_conditional_` trigger**.
 
 ## CORE PHILOSOPHY
 
@@ -14,7 +16,7 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 
 **Three pillars:**
 
-1. **VERIFY** — After every mutating operation, call the corresponding `list_*` to confirm
+1. **VERIFY** — After every mutating operation, call the matching list (`builderbot_project action='list'`, `builderbot_list_flows`, or `builderbot_list_answers`) to confirm
 2. **GATE** — Before every destructive operation, show impact and require explicit "yes"
 3. **RECOVER** — When something fails, diagnose why and propose a fix, never just stop
 
@@ -24,8 +26,7 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 
 | Tool | Purpose | Mutating? |
 | --- | --- | --- |
-| `builderbot_list_projects` | List all projects | No |
-| `builderbot_create_project` | Create project | Yes |
+| `builderbot_project` | Projects: `list` \| `get` \| `create` \| `update` \| `delete` \| `duplicate`. Start with `action='list'`; the returned `uuid` is `projectId` | `create`/`update`/`delete`/`duplicate` yes; `delete` is DESTRUCTIVE (`confirm=true`) |
 | `builderbot_list_flows` | List flows in project | No |
 | `builderbot_create_flow` | Create flow with keywords | Yes |
 | `builderbot_update_flow` | Update flow config | Yes |
@@ -34,8 +35,14 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 | `builderbot_create_answer` | Add answer to flow | Yes |
 | `builderbot_update_answer` | Update answer content | Yes |
 | `builderbot_delete_answer` | Delete single answer | Yes (DESTRUCTIVE) |
-| `builderbot_validate_bot` | Health check before deploy | No |
-| `builderbot_deploy` | Deploy/status/QR/reboot/delete | Yes (some actions) |
+| `builderbot_validate_bot` | Pre-publish structural health check | No |
+| `builderbot_deploy` | Deploy: `create` \| `status` \| `qr` \| `reboot` \| `delete` | `create`/`reboot`/`delete` yes |
+| `builderbot_sanity_check` | Runtime health of a deployed bot | No |
+| `builderbot_read_logs` | Raw container logs when the bot looks unhealthy | No |
+| `builderbot_docs` | Official API reference from `llms.txt`: `search` \| `get` \| `list`. Honor `coverage`: only call the named MCP tool; `not_exposed` is REST-only | No |
+| `builderbot_install_skill_bbc` | Returns a local `npx skills add` command. Does **not** install on the server | No |
+
+**Retired names (do not call):** `builderbot_list_projects` → `builderbot_project action='list'`. `builderbot_create_project` → `builderbot_project action='create'`. `builderbot_get_qr` → `builderbot_deploy action='qr'`. If a call returns `code: "unknown_tool"`, retry with the `hint` — do not loop the same name.
 
 ---
 
@@ -43,20 +50,21 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 
 ### Pattern 1: VERIFY after every mutation
 
-After ANY create/update/delete, call the corresponding `list_*` tool to confirm:
+After ANY create/update/delete, call the matching list to confirm:
 
 ```
-create_flow(projectId, ...) → list_flows(projectId) → search for the new flow
-create_answer(...)          → list_answers(projectId, flowId) → search for new answer
-update_answer(...)          → list_answers(projectId, flowId) → confirm content changed
-delete_flow(...)            → list_flows(projectId) → confirm flow is gone
+builderbot_project(action='create', ...)  → builderbot_project(action='list') → search for the new project uuid
+create_flow(projectId, ...)               → list_flows(projectId) → search for the new flow
+create_answer(...)                        → list_answers(projectId, flowId) → search for new answer
+update_answer(...)                        → list_answers(projectId, flowId) → confirm content changed
+delete_flow(...)                          → list_flows(projectId) → confirm flow is gone
 ```
 
 If verification fails: STOP, report the discrepancy, diagnose, and propose recovery.
 
 ### Pattern 2: GATE before destructive actions
 
-Before `delete_flow`, `delete_answer`, or `deploy(action='delete')`:
+Before `delete_flow`, `delete_answer`, `deploy(action='delete')`, or `builderbot_project(action='delete')`:
 
 1. Show what will be affected (flow name, answer count, references)
 2. Show a clear warning: "⚠️ This cannot be undone"
@@ -68,7 +76,7 @@ Before `delete_flow`, `delete_answer`, or `deploy(action='delete')`:
 
 When any operation fails or verification shows a discrepancy:
 
-1. **Diagnose**: Check limits (flow count), conflicts (duplicate keywords), permissions
+1. **Diagnose**: Check limits (flow count), conflicts (duplicate keywords), permissions. If the error is `unknown_tool`, read the `hint` and retry once with the named tool/action. If the payload/body is unclear, call `builderbot_docs(action='search', query=...)`.
 2. **Report**: Tell user exactly what went wrong
 3. **Propose**: Offer concrete fix (delete unused flow, rename keyword, retry)
 4. **Execute**: Fix with user approval, then VERIFY
@@ -80,7 +88,7 @@ When any operation fails or verification shows a discrepancy:
 ### create_flow parameters
 
 ```
-projectId:        UUID (from list_projects)
+projectId:        UUID (from builderbot_project action='list')
 name:             "Human Readable Name" (Title Case, user's language)
 label:            "snake_case_slug" (lowercase, no spaces)
 keywords:         ["keyword1", "keyword2"] or ["EVENTS.WELCOME"]
@@ -376,9 +384,9 @@ Only use pure keyword → text flows for very simple, static information.
 ### Step 1: Get or Create Project
 
 ```
-list_projects()
-├── Project exists → use its projectId
-└── Need new → create_project(name) → list_projects() → VERIFY
+builderbot_project(action='list')
+├── Project exists → use its uuid as projectId
+└── Need new → builderbot_project(action='create', name) → builderbot_project(action='list') → VERIFY
 ```
 
 ### Step 2: Plan Flows
@@ -440,6 +448,7 @@ validate_bot(projectId)
 4. deploy(projectId, action: "create")
 5. deploy(projectId, action: "status") → check status
 6. If READY_TO_SCAN → deploy(projectId, action: "qr") → show QR
+7. After CONNECTED → builderbot_sanity_check(projectId). If unhealthy → builderbot_read_logs(projectId)
 ```
 
 ---
@@ -455,7 +464,7 @@ validate_bot(projectId)
 | `INITIALIZATION` | Spinning up | Wait and re-check status in ~30s |
 | `FAILED` | Deploy crashed | Inspect logs in panel; redeploy or contact support |
 
-**Auditing "how many bots are on?":** list all projects, then call `deploy(action: "status")` for each. Only `CONNECTED` counts as live.
+**Auditing "how many bots are on?":** `builderbot_project(action='list')`, then `builderbot_deploy(action='status')` for each. Only `CONNECTED` counts as live. Use `builderbot_sanity_check` on live bots before blaming flow design.
 
 ---
 
@@ -475,6 +484,7 @@ validate_bot(projectId)
 | capture=true on last answer | Dangling capture | Remove capture or add follow-up answer |
 | Flow exists but has 0 answers | Assistant was deleted (panel mishap) | Recreate the `add_chatpdf` with full `plugins.openai.assistantInstructions` |
 | `BuilderBot API key required` | MCP connector lost its key | User reconnects BBC MCP TOOL in Claude → Settings → Connectors |
+| `unknown_tool` / retired name | Cached `tools/list` or this skill was stale | Retry with the `hint` (`builderbot_project` / `builderbot_deploy` + `action`). Do not loop |
 
 ### Batch Operations: Sequential with Verification
 
@@ -527,7 +537,7 @@ Project ID: [uuid]
 ## ANTI-PATTERNS (Never Do These)
 
 1. ❌ Creating a flow without immediately adding answers
-2. ❌ Reporting success without verification (`list_*`)
+2. ❌ Reporting success without verification (`builderbot_project action='list'`, `list_flows`, or `list_answers`)
 3. ❌ Deleting without showing impact and getting confirmation
 4. ❌ Deploying without running `validate_bot` first
 5. ❌ Mixing `add_chatpdf` and `add_text` in the same flow
@@ -539,6 +549,7 @@ Project ID: [uuid]
 11. ❌ Putting `EVENTS.ACTION` on more than one flow — use custom labels routed from `add_chatpdf` rules instead
 12. ❌ Trusting `{time}`/`{date}` for business-hours logic when the business isn't in the BBC server timezone — use an `add_http` to a TZ-aware backend
 13. ❌ Putting assistant instructions in `message` instead of `plugins.openai.assistantInstructions`
+14. ❌ Calling `builderbot_list_projects` or `builderbot_create_project` — those tools were removed; use `builderbot_project` with `action`
 
 ---
 
@@ -548,4 +559,4 @@ For deeper patterns and worked examples, read:
 
 * `references/verticals.md` — Detailed bot templates per business type
 * `references/advanced-patterns.md` — HTTP integrations, multi-flow routing, knowledge base setup
-* `references/learned-patterns.md` — **NEW in v2.1.** Production patterns learned from real deployments: chatpdf rules as router, `{aiResponse}` pipe to backend, time-window validation via TZ-aware GAS, image-as-payment-proof workflow, deleted-assistant recovery.
+* `references/learned-patterns.md` — Production patterns: chatpdf rules as router, `{aiResponse}` pipe to backend, time-window validation via TZ-aware GAS, image-as-payment-proof workflow, deleted-assistant recovery. v2.2: project tool unification.

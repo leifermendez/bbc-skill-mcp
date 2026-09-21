@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.2 — MCP tool unification
+
+Aligns the skill with the current BuilderBot MCP surface (15 tools). Agents that
+still call the old project tools get `unknown_tool` and retry the same name in a
+loop unless this document is updated.
+
+### Changed
+
+- **Projects are one tool.** `builderbot_list_projects` and
+  `builderbot_create_project` no longer exist. Use `builderbot_project` with
+  `action='list' | 'get' | 'create' | 'update' | 'delete' | 'duplicate'`. The
+  `uuid` from `list` is `projectId` for every other tool. `delete` requires
+  `confirm=true`.
+- **VERIFY no longer says `list_*`.** After a project mutation, verify with
+  `builderbot_project action='list'`. Flow and answer lists are unchanged
+  (`builderbot_list_flows`, `builderbot_list_answers`).
+- **Deploy QR is `builderbot_deploy action='qr'`.** There is no
+  `builderbot_get_qr` tool.
+
+### Added
+
+- **`builderbot_docs`** (`search` | `get` | `list`) — official API reference.
+  Honor the `coverage` field: only call the named MCP tool; `not_exposed` is
+  REST-only.
+- **`builderbot_sanity_check`** — runtime health after a bot is `CONNECTED`.
+- **`builderbot_read_logs`** — container logs when sanity check looks unhealthy.
+- **`builderbot_install_skill_bbc`** — returns a local `npx skills add` command;
+  does not install files on the MCP server.
+- Recovery row for `unknown_tool` / retired names.
+
 ## v2.1 — Real-world corrections (zabdielna fork)
 
 This release patches v2.0 with corrections learned from production deployments.
