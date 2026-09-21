@@ -1,9 +1,11 @@
 ---
 name: bbc-skill-tool
-description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.2. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, BBC scaffolding files, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
+description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.3. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, BBC scaffolding files, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check, builderbot_blacklist, block spam numbers, lista negra. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
 ---
 
-# BBC MCP Tool v2.2 — Safe-by-Default WhatsApp Bot Builder
+# BBC MCP Tool v2.3 — Safe-by-Default WhatsApp Bot Builder
+
+> **v2.3 changelog (vs v2.2):** Added `builderbot_blacklist` (`list` | `add` | `remove`) for project-level spam/abuse numbers. The Cloud blacklist is an MCP tool; do not send users to the panel or a homemade Apps Script filter.
 
 > **v2.2 changelog (vs v2.1):** Project tools were unified into `builderbot_project` with `action`. `builderbot_list_projects` and `builderbot_create_project` no longer exist — calling them returns `unknown_tool` with the replacement. Added `builderbot_docs`, `builderbot_sanity_check`, and `builderbot_read_logs`. See `references/learned-patterns.md` for production patterns.
 
@@ -37,6 +39,7 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 | `builderbot_delete_answer` | Delete single answer | Yes (DESTRUCTIVE) |
 | `builderbot_validate_bot` | Pre-publish structural health check | No |
 | `builderbot_deploy` | Deploy: `create` \| `status` \| `qr` \| `reboot` \| `delete` | `create`/`reboot`/`delete` yes |
+| `builderbot_blacklist` | Blocked phones: `list` \| `add` \| `remove`. `phones` required for add/remove; stored as-is (no E.164) | `add`/`remove` yes |
 | `builderbot_sanity_check` | Runtime health of a deployed bot | No |
 | `builderbot_read_logs` | Raw container logs when the bot looks unhealthy | No |
 | `builderbot_docs` | Official API reference from `llms.txt`: `search` \| `get` \| `list`. Honor `coverage`: only call the named MCP tool; `not_exposed` is REST-only | No |
@@ -58,6 +61,7 @@ create_flow(projectId, ...)               → list_flows(projectId) → search f
 create_answer(...)                        → list_answers(projectId, flowId) → search for new answer
 update_answer(...)                        → list_answers(projectId, flowId) → confirm content changed
 delete_flow(...)                          → list_flows(projectId) → confirm flow is gone
+builderbot_blacklist(action='add'|'remove', ...) → builderbot_blacklist(action='list') → confirm phones
 ```
 
 If verification fails: STOP, report the discrepancy, diagnose, and propose recovery.
@@ -322,7 +326,15 @@ Body:
 
 Typical callers: an Apps Script web app receiving a webhook from the bot, or a separate panel sending broadcasts. This is NOT a tool in this MCP — it's a plain HTTP call your backend makes.
 
-> **Documented gap:** BBC Cloud has NO managed blacklist REST endpoint comparable to `x-api-builderbot` for adding/removing numbers. The blacklist API exposed in BuilderBot docs (`bot.blacklist.add/remove`) belongs to the self-hosted `@builderbot/bot` framework. If you need blacklist for a Cloud project, manage it inside the panel manually or maintain your own list in Apps Script and pre-filter before sending.
+Before sending outbound messages, skip numbers already blocked on the project:
+
+```
+builderbot_blacklist(action='list', projectId)
+builderbot_blacklist(action='add', projectId, phones: ["5491123456789"])
+builderbot_blacklist(action='remove', projectId, phones: ["5491123456789"])
+```
+
+`phones` is required for add/remove (non-empty array). Numbers are stored as plain strings — the API does not normalize E.164. This is the Cloud project blacklist (spam/abuse), not the `add_blacklist` flow-node answer type (that node is not an MCP tool).
 
 ---
 
@@ -550,6 +562,7 @@ Project ID: [uuid]
 12. ❌ Trusting `{time}`/`{date}` for business-hours logic when the business isn't in the BBC server timezone — use an `add_http` to a TZ-aware backend
 13. ❌ Putting assistant instructions in `message` instead of `plugins.openai.assistantInstructions`
 14. ❌ Calling `builderbot_list_projects` or `builderbot_create_project` — those tools were removed; use `builderbot_project` with `action`
+15. ❌ Sending the user to the Cloud panel or a homemade Apps Script list to block spam — use `builderbot_blacklist`
 
 ---
 

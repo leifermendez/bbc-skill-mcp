@@ -1,4 +1,4 @@
-# Learned Patterns — v2.2
+# Learned Patterns — v2.3
 
 Production patterns from real deployments. None of these are documented in the BBC
 official docs or the upstream v2.0 skill; they were reverse-engineered from working
@@ -255,7 +255,7 @@ This is a separate auth surface from the MCP — the API key is per project, fou
 
 ## 10. Known limitations
 
-* **No managed blacklist endpoint on BBC Cloud.** The `bot.blacklist.add/remove` API in BuilderBot docs is for the self-hosted framework only. Cloud projects have to manage blocked numbers manually in the panel, or you filter on your side before calling the outbound messaging API.
+* **Project blacklist is `builderbot_blacklist`.** Use `action='list' | 'add' | 'remove'` with `projectId`. `phones` is required for add/remove; stored as plain strings (no E.164). This is the Cloud project list for spam/abuse — not the `add_blacklist` flow-node (that answer type is still not an MCP tool), and not the self-hosted `bot.blacklist.add/remove` API.
 * **`add_chatpdf` cannot trigger HTTP by itself.** It can only emit text. To call an external endpoint after the AI replies, you MUST route via `plugins.openai.rules` to a separate flow that contains the `add_http`. There is no "tool calling" inside the chatpdf.
 * **Vision OCR is best-effort.** Don't auto-credit money based on a parsed receipt without human approval.
 * **`{time}`/`{date}` are BBC-server-local, not business-local.** Use a TZ-aware GAS endpoint for hours logic.

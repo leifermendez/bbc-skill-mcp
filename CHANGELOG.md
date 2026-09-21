@@ -1,8 +1,27 @@
 # Changelog
 
+## v2.3 — Project blacklist MCP tool
+
+Aligns the skill with the current BuilderBot MCP surface (16 tools). Agents can
+block spam/abuse numbers without leaving MCP.
+
+### Added
+
+- **`builderbot_blacklist`** (`list` | `add` | `remove`) — Cloud project
+  blacklist. `phones` is required for add/remove; numbers are stored as-is
+  (no E.164). VERIFY after add/remove with `action='list'`.
+
+### Changed
+
+- Removed the "no Cloud blacklist endpoint" limitation. That was true of the
+  self-hosted `@builderbot/bot` API (`bot.blacklist.add/remove`); Cloud has
+  `GET/POST/DELETE /project/:id/blacklist`, now exposed as this MCP tool.
+- The `add_blacklist` **flow-node** answer type is still not an MCP tool.
+
 ## v2.2 — MCP tool unification
 
-Aligns the skill with the current BuilderBot MCP surface (15 tools). Agents that
+Aligns the skill with the BuilderBot MCP surface after project-tool unification
+(then 15 tools). Agents that
 still call the old project tools get `unknown_tool` and retry the same name in a
 loop unless this document is updated.
 
@@ -83,11 +102,11 @@ and pattern fixes that prevent bugs the upstream skill was actively causing.
   with worked examples: chatpdf-rules-as-router, `{aiResponse}` pipe to GAS,
   TZ-aware schedule validation, image-as-payment-proof, deleted-assistant
   recovery, live-bot auditing, outbound notifications, and known limitations
-  (no Cloud blacklist endpoint, chatpdf can't call HTTP directly, etc.).
+  (blacklist now via `builderbot_blacklist`, chatpdf can't call HTTP directly, etc.).
 
 ### Known limitations documented (not new behavior, just newly written down)
 
-- BBC Cloud has no managed blacklist REST endpoint.
+- BBC Cloud blacklist is now `builderbot_blacklist` (added in v2.3).
 - `add_chatpdf` cannot directly trigger HTTP — must route via rules.
 - Vision OCR is best-effort; never auto-credit money from parsed receipts.
 - `{time}`/`{date}` are BBC-server-local, not business-local.
