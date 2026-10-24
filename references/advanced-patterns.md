@@ -1,4 +1,4 @@
-# Advanced Patterns — BBC MCP Tool v2.0
+# Advanced Patterns — BBC MCP Tool v2.4
 
 ## HTTP Integration (add_http)
 
@@ -11,7 +11,7 @@ create_answer:
     http:
       url: "https://api.example.com/status?order={capture}"
       method: "GET"
-      rules: []   ← REQUIRED, even if empty
+      rules: []
 ```
 
 ### POST Request
@@ -28,7 +28,7 @@ create_answer:
       body:
         name: "{capture}"
         source: "whatsapp"
-      rules: []   ← REQUIRED
+      rules: []
 ```
 
 ### Capture → HTTP Pattern
@@ -40,55 +40,91 @@ Flow: registration
   Answer 3: add_http → POST captured data to CRM
 ```
 
-**IMPORTANT**: Each capture only passes to the NEXT answer. For multi-field capture,
-chain answers or use AI (add_chatpdf) to collect all fields then route.
+**IMPORTANT**: Each capture only passes to the NEXT answer. Never set `capture: true` on the last answer of a flow. For multi-field capture, chain answers or use AI (`add_chatpdf`) to collect all fields and route via top-level `rules`.
 
 ---
 
 ## Multi-Flow Routing
 
 ### Using gotoFlow
-Redirect user from one flow to another after an answer:
+Redirect user from one flow to another after an answer (`options.gotoFlow` is a **UUID string**, never `{ flowId }`):
 ```
 update_answer:
   options:
-    gotoFlow:
-      flowId: "<target-flow-uuid>"
+    gotoFlow: "<target-flow-uuid>"
 ```
+Pass `null` to clear an existing redirect.
 
 ### Using add_intent (AI Semantic Router)
-Route based on user intent without exact keyword matching:
+Route based on user intent without exact keyword matching (`condition` must be a valid operator from the closed enum such as `"==="`, never `""`):
 ```
 create_answer:
   type: "add_intent"
+  message: ""
   plugins:
     intent:
       rules:
         - conditionRule: "The user wants to book an appointment"
           conditionFlowId: "<booking-flow-uuid>"
-          condition: ""
-          conditionValue: ""
+          condition: "==="
+          conditionValue: "book"
         - conditionRule: "The user wants to talk to a human"
           conditionFlowId: "<escalation-flow-uuid>"
-          condition: ""
-          conditionValue: ""
+          condition: "==="
+          conditionValue: "human"
         - conditionRule: "The user wants to know prices"
           conditionFlowId: "<pricing-flow-uuid>"
-          condition: ""
-          conditionValue: ""
+          condition: "==="
+          conditionValue: "prices"
 ```
 
-**When to use intent vs keywords:**
-- Keywords: exact match, fast, predictable (e.g., "menu", "precios")
-- Intent: semantic match, handles natural language (e.g., "quiero saber cuánto cuesta")
-- Best practice: Use EVENTS.WELCOME + add_chatpdf for most cases, reserve intent for complex routing
+### Using Google Calendar (add_google_calendar)
+Configure `plugins.scheduleGoogleCalendar` and route outcomes (`available | not_available | misunderstood`) via top-level `rules`:
+```
+create_answer:
+  type: "add_google_calendar"
+  message: ""
+  plugins:
+    scheduleGoogleCalendar:
+      action: "create"
+      calendarId: "primary"
+      durationMeeting: 30
+  rules:
+    - conditionRule: "available"
+      condition: "==="
+      conditionValue: ""
+      conditionFlowId: "<confirm-flow-uuid>"
+    - conditionRule: "not_available"
+      condition: "==="
+      conditionValue: ""
+      conditionFlowId: "<busy-flow-uuid>"
+    - conditionRule: "misunderstood"
+      condition: "==="
+      conditionValue: ""
+      conditionFlowId: "<retry-flow-uuid>"
+```
 
 ---
 
 ## Knowledge Base Management
 
+### Creating an AI Assistant Answer (One Call)
+`add_chatpdf` is provisioned in a single `create_answer` call:
+```
+create_answer:
+  projectId: "<project-uuid>"
+  flowId: "<flow-uuid>"
+  type: "add_chatpdf"
+  message: ""
+  plugins:
+    openai:
+      assistantModel: "gpt-5.4-nano"
+      assistantInstructions: "You are the assistant for [business]..."
+  rules: []
+```
+
 ### Scraping a Website
-After creating an add_chatpdf answer, feed it website content:
+After creating an `add_chatpdf` answer, feed it website content:
 ```
 update_answer:
   answerId: "<answer-uuid>"
@@ -98,16 +134,24 @@ update_answer:
     scrapeUrl: "https://www.business-website.com"
 ```
 
-### Setting AI Instructions
+### Updating AI Instructions or Model
 ```
 update_answer:
-  assistant:
-    instructions: "You are the assistant for [business]..."
+  answerId: "<answer-uuid>"
+  flowId: "<flow-uuid>"
+  projectId: "<project-uuid>"
+  plugins:
+    openai:
+      assistantInstructions: "You are the assistant for [business]..."
+      assistantModel: "gpt-5.4-nano"
 ```
 
 ### Listing Knowledge Base Files
 ```
 update_answer:
+  answerId: "<answer-uuid>"
+  flowId: "<flow-uuid>"
+  projectId: "<project-uuid>"
   assistant:
     listFiles: true
 ```
@@ -115,15 +159,11 @@ update_answer:
 ### Deleting a File from Knowledge Base
 ```
 update_answer:
+  answerId: "<answer-uuid>"
+  flowId: "<flow-uuid>"
+  projectId: "<project-uuid>"
   assistant:
     deleteFileId: "<file-uuid>"
-```
-
-### Changing AI Model
-```
-update_answer:
-  assistant:
-    model: "gpt-5.4-nano"  // or other supported model
 ```
 
 ---
@@ -145,50 +185,40 @@ Flow: escalation
   Answer 3: add_mute { status: true, gapTime: 120 }
 ```
 
-### Auto-unmute
-`gapTime` controls auto-unmute in minutes. After this period, the bot resumes.
-- Short conversations: gapTime: 30
-- Complex support: gapTime: 120
-- Indefinite (agent unmutes manually): gapTime: 1440 (24h)
-
 ---
 
 ## Media Answers
+
+`options.media` is always a **public URL string** (never `{ url }`), and `options.gotoFlow` is an optional **flow UUID string** (or `null` / omitted, never `{}`).
 
 ### Sending an Image
 ```
 create_answer:
   type: "add_image"
-  message: ""
+  message: "Nuestro menú actualizado"
   options:
-    media:
-      url: "https://example.com/menu.jpg"
-    gotoFlow: {}
+    media: "https://example.com/menu.jpg"
 ```
 
 ### Sending a Document (PDF, etc.)
 ```
 create_answer:
   type: "add_doc"
-  message: ""
+  message: "Catálogo completo"
   options:
-    media:
-      url: "https://example.com/catalog.pdf"
-    gotoFlow: {}
+    media: "https://example.com/catalog.pdf"
 ```
 
 ### Sending a Video
 ```
 create_answer:
   type: "add_video"
-  message: ""
+  message: "Tutorial paso a paso"
   options:
-    media:
-      url: "https://example.com/tutorial.mp4"
-    gotoFlow: {}
+    media: "https://example.com/tutorial.mp4"
 ```
 
-**IMPORTANT**: Media URLs must be publicly accessible. Private/authenticated URLs will fail silently.
+**IMPORTANT**: Media URLs must be publicly accessible. Private/authenticated URLs will fail.
 
 ---
 
@@ -196,31 +226,30 @@ create_answer:
 
 ### Full Deploy Sequence
 ```
-1. validate_bot(projectId)           → Must pass (criticalCount = 0)
-2. deploy(projectId, action: "create")  → Provision container
-3. deploy(projectId, action: "status")  → Wait for READY_TO_SCAN
-4. deploy(projectId, action: "qr")      → Get QR code image
+1. builderbot_validate_bot(projectId)           → Must pass (criticalCount = 0)
+2. builderbot_deploy(projectId, action: "create")  → Provision container
+3. builderbot_deploy(projectId, action: "status")  → Wait for READY_TO_SCAN
+4. builderbot_deploy(projectId, action: "qr")      → Get QR code image (only in READY_TO_SCAN)
 5. User scans QR with WhatsApp
-6. deploy(projectId, action: "status")  → Should show CONNECTED
+6. builderbot_deploy(projectId, action: "status")  → Shows ONLINE
 ```
 
 ### Status Values
 | Status | Meaning |
 |--------|---------|
-| INITIALIZATION | Container starting up |
-| READY_TO_SCAN | QR available, waiting for scan |
-| CONNECTED | Bot is live and responding |
-| FAILED | Something went wrong |
+| `INITIALIZATION` | Container starting up (`action='qr'` returns `deploy_qr_not_ready`) |
+| `READY_TO_SCAN` | QR available, waiting for scan |
+| `ONLINE` | Bot is live and responding (no QR needed) |
+| `FAILED` | Something went wrong — inspect with `builderbot_read_logs` |
 
 ### Reboot
 ```
-deploy(projectId, action: "reboot")  → Restart bot container
+builderbot_deploy(projectId, action: "reboot")  → Restart bot container
 ```
-Use when bot stops responding but project is fine.
 
 ### Delete Deployment (GATE REQUIRED)
 ```
-deploy(projectId, action: "delete")  → Tear down container
+builderbot_deploy(projectId, action: "delete")  → Tear down container
 ```
 Does NOT delete project data — just stops the running bot.
 
@@ -228,33 +257,9 @@ Does NOT delete project data — just stops the running bot.
 
 ## WhatsApp Message Limits
 
-- **Text messages**: ≤ 160 characters recommended (longer messages may be truncated or split)
-- **AI responses** (add_chatpdf): Include "keep responses under 150 characters" in instructions
+- **Text messages**: ≤ 160 characters recommended
+- **AI responses** (`add_chatpdf`): Include "keep responses under 150 characters" in instructions
 - **Button labels**: ≤ 20 characters
 - **List items**: ≤ 24 characters for title, ≤ 72 for description
 
-Always run `validate_bot` to catch messages > 160 chars before deploying.
-
----
-
-## Troubleshooting
-
-### Bot not responding
-1. Check deploy status: `deploy(projectId, action: "status")`
-2. If FAILED → `deploy(projectId, action: "reboot")`
-3. If still failing → `deploy(projectId, action: "delete")` then re-create
-
-### Double responses
-- Check if flow has both `add_chatpdf` and `add_text` → remove `add_text`
-- Check if multiple flows have overlapping keywords → audit keywords
-
-### Messages being truncated
-- Run `validate_bot` → check for "long messages" warning
-- Shorten to ≤ 160 chars
-- For AI: add instruction "respuestas de máximo 3 líneas"
-
-### Flow not triggering
-- Verify keywords with `list_flows`
-- Check if another flow has conflicting keywords
-- Ensure `listenKeywords: false` (unless VOICE_NOTE)
-- Verify flow has at least one answer (`list_answers`)
+Always run `builderbot_validate_bot` before deploying.

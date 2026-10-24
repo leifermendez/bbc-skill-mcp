@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.4 — Strict MCP answer contract, project settings & runtime guards
+
+Aligns the skill with `builderbot-mcp-http` `schemaVersion = 2`. Inputs are now
+validated strictly by the MCP server: any unknown key or invalid shape returns
+`code: "validation_error"` with the failing field path and an actionable hint
+instead of being silently discarded.
+
+### Fixed (Breaking silent-drop shapes in v2.1–v2.3)
+
+- **Top-level `rules` on answers:** Routing rules for `add_chatpdf`, conditional
+  capture, and calendars live in the answer's top-level `rules` array — **never**
+  under `plugins.openai.rules` (rejected with `validation_error`).
+- **String `options.media` and `options.gotoFlow`:** `options.media` is a public
+  URL string (not `{ url }`) and `options.gotoFlow` is a destination flow UUID
+  string or `null` (not `{ flowId }` or `{}`).
+- **One-call `add_chatpdf` creation:** `builderbot_create_answer` with
+  `type: "add_chatpdf"` and `plugins.openai` provisions the platform assistant
+  in a single call. No second `update_answer` call is needed to create it.
+- **Google Calendar shape:** Uses `type: "add_google_calendar"` with
+  `plugins.scheduleGoogleCalendar` (`action`, `calendarId`, `durationMeeting`,
+  `canDuplicate`, `maxEventsPerHour`) and top-level `rules` matching
+  `available | not_available | misunderstood` (not `plugins.calendar` or
+  `missingInfo`).
+- **`add_intent` operator:** `plugins.intent.rules[].condition` must be a valid
+  operator from the closed 14-operator enum (e.g. `"==="`), never `""`.
+- **Deploy statuses:** Actual statuses are
+  `INITIALIZATION | READY_TO_SCAN | ONLINE | FAILED` (not `CONNECTED`). Calling
+  `builderbot_deploy action='qr'` outside `READY_TO_SCAN` returns
+  `deploy_qr_not_ready`.
+- **Repeatable flow events:** Both `EVENTS.ACTION` and `EVENTS.IG_COMMENT` may
+  appear in multiple flows; `EVENTS.VOICE_NOTE`, `EVENTS.MEDIA`, and
+  `EVENTS.DOCUMENT` remain unique per project.
+
+### Added
+
+- **`builderbot_project action='settings'`:** Read or update project-level
+  `provider` (`meta`, `baileys`, `instagram`, `telegram`, `evolution`, `wpp`,
+  `HighLevel`), `timeZone` (IANA, e.g. `America/Mexico_City`), `phoneNumber`,
+  `rejectCalls`, `showTypingEvents`, and `showRecordingEvents`.
+- **`validation_error` recovery rule:** Never resend an unchanged payload after
+  `validation_error`; apply the field-level `hint` and retry.
+
 ## v2.3 — Project blacklist MCP tool
 
 Aligns the skill with the current BuilderBot MCP surface (16 tools). Agents can

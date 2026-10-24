@@ -1,26 +1,23 @@
 ---
 name: bbc-skill-tool
-description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.3. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, BBC scaffolding files, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check, builderbot_blacklist, block spam numbers, lista negra. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
+description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.4. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, project settings, zona horaria, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check, builderbot_blacklist, block spam numbers, lista negra. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
+activation:
+  # Charged when the body is at most twice this (≤7020 tokens, agentSkillBudget.spec).
+  # 3510 + bbc-behavior 1750 fits the 6000 turn budget. Do not lower it.
+  max_context_tokens: 3510
 ---
 
-# BBC MCP Tool v2.3 — Safe-by-Default WhatsApp Bot Builder
+# BBC MCP Tool v2.4 — Safe-by-Default WhatsApp Bot Builder
 
-> **v2.3 changelog (vs v2.2):** Added `builderbot_blacklist` (`list` | `add` | `remove`) for project-level spam/abuse numbers. The Cloud blacklist is an MCP tool; do not send users to the panel or a homemade Apps Script filter.
-
-> **v2.2 changelog (vs v2.1):** Project tools were unified into `builderbot_project` with `action`. `builderbot_list_projects` and `builderbot_create_project` no longer exist — calling them returns `unknown_tool` with the replacement. Added `builderbot_docs`, `builderbot_sanity_check`, and `builderbot_read_logs`. See `references/learned-patterns.md` for production patterns.
-
-> **v2.1 changelog (vs v2.0):** Corrected `EVENTS.*` uniqueness rule (it's only the literal system event that must be unique, not "action-style" flows). Replaced the simplified `add_chatpdf` `assistant` config with the real `plugins.openai.*` structure. Added new sections: **Routing from add_chatpdf rules**, **System Variables**, **Deploy Status Diagnostics**, **EVENTS.MEDIA with vision**, **Google Calendar native answer**, **Outbound Messaging REST API**, **`_capture_conditional_` trigger**.
+> **v2.4 changelog (vs v2.3):** Inputs are now **strict**: a wrong shape returns `code: "validation_error"` with the failing paths and a hint per mistake — it is no longer dropped silently. Shapes fixed in this version: routing `rules` live at the **top level** of the answer (never under `plugins.openai`); `options.media` and `options.gotoFlow` are **strings**; Google Calendar is `plugins.scheduleGoogleCalendar` + top-level outcome rules; `add_intent` rules need a real operator. `add_chatpdf` is created in **one call** (the platform provisions the assistant). New `builderbot_project action='settings'` (time zone, channel). `EVENTS.ACTION` and `EVENTS.IG_COMMENT` may repeat. Deploy statuses are `INITIALIZATION | READY_TO_SCAN | ONLINE | FAILED`.
 
 ## CORE PHILOSOPHY
 
-v2.x = v1 + Safety. Same tools, same BBC API, but with **mandatory patterns** that prevent
-the silent failures, accidental deletions, and unvalidated deploys that plagued v1.
-
 **Three pillars:**
 
-1. **VERIFY** — After every mutating operation, call the matching list (`builderbot_project action='list'`, `builderbot_list_flows`, or `builderbot_list_answers`) to confirm
-2. **GATE** — Before every destructive operation, show impact and require explicit "yes"
-3. **RECOVER** — When something fails, diagnose why and propose a fix, never just stop
+1. **VERIFY** — After every mutating operation, call the matching list (`builderbot_project action='list'`, `builderbot_list_flows`, `builderbot_list_answers`, `builderbot_blacklist action='list'`) to confirm.
+2. **GATE** — Before every destructive operation, show impact and wait for an explicit "yes".
+3. **RECOVER** — When something fails, read `code` + `hint`, fix the payload or propose a fix. Never retry the same payload unchanged, never just stop.
 
 ---
 
@@ -28,24 +25,27 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 
 | Tool | Purpose | Mutating? |
 | --- | --- | --- |
-| `builderbot_project` | Projects: `list` \| `get` \| `create` \| `update` \| `delete` \| `duplicate`. Start with `action='list'`; the returned `uuid` is `projectId` | `create`/`update`/`delete`/`duplicate` yes; `delete` is DESTRUCTIVE (`confirm=true`) |
+| `builderbot_project` | Projects: `list` \| `get` \| `create` \| `update` \| `delete` \| `duplicate` \| `settings`. Start with `action='list'`; the returned `uuid` is `projectId` | `create`/`update`/`delete`/`duplicate`/`settings` yes; `delete` is DESTRUCTIVE (`confirm=true`) |
 | `builderbot_list_flows` | List flows in project | No |
 | `builderbot_create_flow` | Create flow with keywords | Yes |
 | `builderbot_update_flow` | Update flow config | Yes |
 | `builderbot_delete_flow` | Delete flow + all answers | Yes (DESTRUCTIVE) |
 | `builderbot_list_answers` | List answers in flow | No |
 | `builderbot_create_answer` | Add answer to flow | Yes |
-| `builderbot_update_answer` | Update answer content | Yes |
+| `builderbot_update_answer` | Update answer content; `plugins.openai` merges with what is stored | Yes |
 | `builderbot_delete_answer` | Delete single answer | Yes (DESTRUCTIVE) |
-| `builderbot_validate_bot` | Pre-publish structural health check | No |
+| `builderbot_validate_bot` | Pre-publish structural health check (14 checks) | No |
 | `builderbot_deploy` | Deploy: `create` \| `status` \| `qr` \| `reboot` \| `delete` | `create`/`reboot`/`delete` yes |
 | `builderbot_blacklist` | Blocked phones: `list` \| `add` \| `remove`. `phones` required for add/remove; stored as-is (no E.164) | `add`/`remove` yes |
 | `builderbot_sanity_check` | Runtime health of a deployed bot | No |
-| `builderbot_read_logs` | Raw container logs when the bot looks unhealthy | No |
-| `builderbot_docs` | Official API reference from `llms.txt`: `search` \| `get` \| `list`. Honor `coverage`: only call the named MCP tool; `not_exposed` is REST-only | No |
-| `builderbot_install_skill_bbc` | Returns a local `npx skills add` command. Does **not** install on the server | No |
+| `builderbot_read_logs` | Container logs; `lines` 1–500 (default 200), returns `returned`/`total`/`truncated` | No |
+| `builderbot_docs` | Official API reference: `search` \| `get` \| `list`. Honor `coverage`: only call the named MCP tool; `not_exposed` is REST-only | No |
 
-**Retired names (do not call):** `builderbot_list_projects` → `builderbot_project action='list'`. `builderbot_create_project` → `builderbot_project action='create'`. `builderbot_get_qr` → `builderbot_deploy action='qr'`. If a call returns `code: "unknown_tool"`, retry with the `hint` — do not loop the same name.
+**Retired names (do not call):** `builderbot_list_projects` → `builderbot_project action='list'`. `builderbot_create_project` → `builderbot_project action='create'`. `builderbot_get_qr` → `builderbot_deploy action='qr'`. If a call returns `code: "unknown_tool"`, retry once with the `hint`.
+
+### Project settings
+
+`builderbot_project(action='settings', projectId)` returns `{ provider, timeZone, phoneNumber, rejectCalls, showTypingEvents, showRecordingEvents }`. Pass `settings: {...}` with the fields to change. `timeZone` is an IANA name (`America/Mexico_City`); `provider` ∈ `baileys | baileys_code | telegram | meta | gohighlevel | gohighlevel_bridge | facebook | instagram | webchat`. API keys are never returned. **Set the time zone before building calendar or reminder flows** — appointment slots and reminders are computed in it.
 
 ---
 
@@ -53,48 +53,43 @@ the silent failures, accidental deletions, and unvalidated deploys that plagued 
 
 ### Pattern 1: VERIFY after every mutation
 
-After ANY create/update/delete, call the matching list to confirm:
-
 ```
-builderbot_project(action='create', ...)  → builderbot_project(action='list') → search for the new project uuid
-create_flow(projectId, ...)               → list_flows(projectId) → search for the new flow
-create_answer(...)                        → list_answers(projectId, flowId) → search for new answer
-update_answer(...)                        → list_answers(projectId, flowId) → confirm content changed
-delete_flow(...)                          → list_flows(projectId) → confirm flow is gone
-builderbot_blacklist(action='add'|'remove', ...) → builderbot_blacklist(action='list') → confirm phones
+builderbot_project(action='create') → builderbot_project(action='list') → find the new uuid
+create_flow(projectId, ...)         → list_flows(projectId) → find the flow, keep its uuid
+create_answer(...)                  → list_answers(projectId, flowId) → find the answer
+update_answer(...)                  → list_answers(projectId, flowId) → confirm the change
+delete_flow(...)                    → list_flows(projectId) → confirm it is gone
+builderbot_blacklist(add|remove)    → builderbot_blacklist(action='list') → confirm phones
 ```
 
-If verification fails: STOP, report the discrepancy, diagnose, and propose recovery.
+If verification fails: STOP, report the discrepancy, diagnose, propose recovery.
 
 ### Pattern 2: GATE before destructive actions
 
-Before `delete_flow`, `delete_answer`, `deploy(action='delete')`, or `builderbot_project(action='delete')`:
-
-1. Show what will be affected (flow name, answer count, references)
-2. Show a clear warning: "⚠️ This cannot be undone"
-3. Wait for explicit user confirmation
-4. After execution, VERIFY the deletion
-5. Run `validate_bot` to check for broken references
+Before `delete_flow`, `delete_answer`, `deploy(action='delete')`, `builderbot_project(action='delete')`: show what is affected (flow name, answer count, references), say it cannot be undone, wait for the person's yes, then VERIFY and run `validate_bot` for broken references.
 
 ### Pattern 3: RECOVER on failure
 
-When any operation fails or verification shows a discrepancy:
+| `code` | Meaning | Do |
+| --- | --- | --- |
+| `validation_error` | Wrong shape; `message` lists the paths, `hint` says the right shape | Fix the payload per the hint and resend. Never resend unchanged |
+| `assistant_provision_failed` | The `add_chatpdf` answer exists but its AI assistant does not | `builderbot_update_answer { answerId, assistant: { instructions } }`. **Do not create the answer again** |
+| `builderbot_api_conflict` | 409: duplicate event keyword (lists `events`) or a deploy already exists | Rename / reuse the flow; for deploy use `action='status'` |
+| `builderbot_api_payment_required` | 402: plan limit; message carries the billing URL | Tell the person the limit and the URL. Do not retry |
+| `deploy_qr_not_ready` | Status is not `READY_TO_SCAN` | Follow the hint (`ONLINE` = already linked; `INITIALIZATION` = poll status) |
+| `unknown_tool` | Retired name or cached tool list | Retry once with the `hint` |
+| `BuilderBot API key required` | MCP connector lost its key | Person reconnects BBC MCP TOOL in Claude → Settings → Connectors |
 
-1. **Diagnose**: Check limits (flow count), conflicts (duplicate keywords), permissions. If the error is `unknown_tool`, read the `hint` and retry once with the named tool/action. If the payload/body is unclear, call `builderbot_docs(action='search', query=...)`.
-2. **Report**: Tell user exactly what went wrong
-3. **Propose**: Offer concrete fix (delete unused flow, rename keyword, retry)
-4. **Execute**: Fix with user approval, then VERIFY
+When the body is unclear, `builderbot_docs(action='search', query=...)` before guessing.
 
 ---
 
 ## FLOW CREATION RULES
 
-### create_flow parameters
-
 ```
 projectId:        UUID (from builderbot_project action='list')
-name:             "Human Readable Name" (Title Case, user's language)
-label:            "snake_case_slug" (lowercase, no spaces)
+name:             "Human Readable Name" (Title Case, person's language)
+label:            "snake_case_slug"
 keywords:         ["keyword1", "keyword2"] or ["EVENTS.WELCOME"]
 listenKeywords:   false (ALWAYS false unless EVENTS.VOICE_NOTE)
 transcribeAudio:  true only for EVENTS.VOICE_NOTE
@@ -102,474 +97,275 @@ interpretImage:   true only for EVENTS.MEDIA
 analyzeDocument:  true only for EVENTS.DOCUMENT
 ```
 
-### CRITICAL RULES
-
-* `listenKeywords` MUST be `false` for ALL flows EXCEPT `EVENTS.VOICE_NOTE`
-* A new flow has 0 answers — the bot will NOT respond until you add answers
-* Always add answers IMMEDIATELY after creating a flow
-* Text keywords must be UNIQUE across all flows
-* **The literal system event `EVENTS.ACTION` (and every other `EVENTS.*`) can appear in only ONE flow per project.** BBC routes the event to exactly one destination; duplicates cause silent conflicts where only one flow fires and the other is ignored.
-* **However, you can have UNLIMITED "action-style" flows** — flows triggered by `add_chatpdf` routing rules (see [Routing from add_chatpdf rules](#routing-from-add_chatpdf-rules)). Those flows use custom labels like `_save_order_`, `_save_payment_`, `_book_appointment_`, NOT the literal `EVENTS.ACTION`.
-
-### System Events Reference
+* A new flow has 0 answers — the bot will NOT respond until you add answers. Add them IMMEDIATELY.
+* Never mix `EVENTS.*` and text keywords in one flow. Text keywords must be unique across flows.
+* **Each `EVENTS.*` event except `EVENTS.ACTION` and `EVENTS.IG_COMMENT` can exist in only ONE flow per project.** `EVENTS.ACTION` and `EVENTS.IG_COMMENT` may repeat (the platform exempts them; `validate_bot` ignores those duplicates).
+* Flows reached only by routing rules (`_save_order_`, `_book_appointment_`) use a custom text label as keyword, not an event.
 
 | Event | Use case | Required flags |
 | --- | --- | --- |
 | `EVENTS.WELCOME` | Catch-all / fallback | listenKeywords: false |
 | `EVENTS.VOICE_NOTE` | Voice message handler | listenKeywords: true, transcribeAudio: true |
-| `EVENTS.MEDIA` | Image handler (vision) | interpretImage: true (see vision pattern below) |
+| `EVENTS.MEDIA` | Image handler (vision) | interpretImage: true |
 | `EVENTS.DOCUMENT` | Document handler | analyzeDocument: true |
 | `EVENTS.LOCATION` | Location shared | — |
-| `EVENTS.ACTION` | Single generic "action" sink | unique per project |
-
-> **Note:** `EVENTS.ACTION` is rarely the right tool. For multi-action bots, prefer **custom-label flows triggered from `add_chatpdf` rules**, not `EVENTS.ACTION`. See the routing section below.
+| `EVENTS.ACTION` | Generic action sink | may repeat |
 
 ---
 
-## ANSWER TYPES REFERENCE
+## ANSWER SHAPES (strict — unknown keys are rejected)
 
-### add_text — Simple text message
+`type` must be one of: `add_text`, `add_image`, `add_video`, `add_doc`, `add_voice_note`, `add_http`, `add_calendar`, `add_mute`, `add_intent`, `add_reminder`, `add_follow_up`, `add_forward_message`, `add_voice_ai`, `add_structured_output`, `add_google_calendar`, `add_chatpdf`, `add_shopify`. Bare names (`text`, `image`) are rejected.
+
+### Routing rules (top level, any type)
 
 ```
-type: "add_text"
-message: "Your text here"  ← MAX 160 chars for WhatsApp
+rules: [{ conditionRule: "PEDIDO CONFIRMADO", condition: "includes", conditionValue: "", conditionFlowId: "<flow uuid>" }]
 ```
+
+`condition` ∈ `=== | !== | > | < | >= | <= | startsWith | includes | notIncludes | regex | notRegex | length> | length< | length=`. `rules` is a top-level field of the answer — **never** inside `plugins.openai`. `plugins.http.rules` and `plugins.intent.rules` are the only plugin-level rules.
+
+### add_text
+
+```
+type: "add_text", message: "Your text here"
+options: { capture: true }   // optional: wait for the reply and pass it to the NEXT answer
+```
+
+Keep messages short (~160 chars) for readability; WhatsApp does **not** truncate them. **Never `capture: true` on the LAST answer** — the value is lost.
 
 ### add_chatpdf — AI-powered assistant (Pattern 2, DEFAULT)
 
-When creating, pass an empty `message` and the assistant config inside `plugins.openai`:
+One call. The platform creates the assistant and returns `assistantId`.
 
 ```
 type: "add_chatpdf"
 message: ""
-plugins: {
-  openai: {
-    assistantName: "Nora",
-    assistantInstructions: "You are a helpful assistant for [business]...",
-    assistantInterpretMultimedia: true,   // optional, enables vision on EVENTS.MEDIA flows
-    rules: [                              // optional, AI-response → flow routing (see below)
-      {
-        conditionRule: "PEDIDO CONFIRMADO",
-        conditionFlowId: "<save-order-flow-uuid>",
-        condition: "contains",
-        conditionValue: ""
-      }
-    ]
-  }
-}
+plugins: { openai: {
+  assistantName: "Nora",
+  assistantInstructions: "You are a helpful assistant for [business]...",   // REQUIRED
+  assistantModel: "gpt-5.4-nano",                                            // default; gpt-5.4-mini for harder tasks
+  assistantInterpretMultimedia: true                                         // optional: vision on EVENTS.MEDIA flows
+} }
+rules: [ { conditionRule: "PEDIDO CONFIRMADO", condition: "includes", conditionValue: "", conditionFlowId: "<save-order uuid>" } ]
 ```
 
-**Key facts:**
+* `assistantInstructions` is the full system prompt. Leave `message` empty: the AI writes the reply.
+* While generating, BBC scans the top-level `rules` against the AI's text; a match jumps to `conditionFlowId` after the reply, with the text in `{aiResponse}`. Teach the AI to emit uppercase markers ("PEDIDO CONFIRMADO", "AGENDAR CITA") only when an action should fire.
+* Build destination flows FIRST (you need their uuids), then create the chatpdf with its `rules`, or add them later with `update_answer { rules }`.
+* **Single-answer rule:** a flow with `add_chatpdf` contains ONLY that answer. `validate_bot` marks anything else critical.
+* Editing: `update_answer { answerId, assistant: { instructions, model } }` or `plugins: { openai: {...} }` — partial patches merge with what is stored.
+* Knowledge: `update_answer { answerId, assistant: { scrapeUrl } }` to ingest a page; `{ listFiles: true }` / `{ deleteFileId }` to manage files.
 
-* `message: ""` is REQUIRED — text content lives nowhere for AI answers; the assistant is the response engine.
-* `plugins.openai.assistantInstructions` is the full system prompt. Treat it like a normal LLM system prompt.
-* `plugins.openai.rules` is what makes the AI "agentic" — it routes to other flows based on what the AI's reply contains. This is the foundation of multi-flow bots. See [Routing from add_chatpdf rules](#routing-from-add_chatpdf-rules).
-* When recreating a deleted assistant, the platform assigns a fresh `assistant_id` server-side — that's normal, not an error.
-
-**CRITICAL — single-answer rule:** NEVER mix `add_chatpdf` with `add_text` (or any other answer type) in the same flow. Both fire on every message → broken double-response loop. A flow that contains an `add_chatpdf` must contain ONLY that one answer.
-
-### add_image / add_video / add_doc / add_voice_note — Media
+### add_image / add_video / add_doc / add_voice_note
 
 ```
-type: "add_image"
-message: ""
-options: { media: { url: "https://public-url.com/image.jpg" }, gotoFlow: {} }
+type: "add_image", message: "", options: { media: "https://public-url.com/image.jpg" }
 ```
 
-### add_http — HTTP webhook/API call
+`media` is a **string URL**, not `{ url }`. `validate_bot` flags a media answer without it.
+
+### add_http
 
 ```
-type: "add_http"
-message: ""
-plugins: {
-  http: {
-    url: "https://api.example.com/endpoint",
-    method: "GET" | "POST",
-    headers: { "Content-Type": "application/json" },  // optional
-    body: { key: "value" },  // optional, for POST; can reference {aiResponse}, {from}, {time}
-    rules: [                  // optional, route based on response payload
-      { conditionRule: "open", conditionFlowId: "<closed-flow-uuid>", condition: "equals", conditionValue: "false" }
-    ]
-  }
-}
+type: "add_http", message: ""
+plugins: { http: {
+  url: "https://api.example.com/endpoint", method: "GET" | "POST",
+  headers: { "Content-Type": "application/json" },                       // optional
+  body: { pedido: "{aiResponse}", numero: "{from}" },                     // optional (POST)
+  rules: []                                                               // ALWAYS present; route on the response payload
+} }
 ```
 
-**CRITICAL**: `plugins.http.rules` is REQUIRED to be present (even as `[]`). Omitting it causes backend rejection.
-
-### add_mute — Mute contact (human handoff)
+### add_mute — human handoff (mutes ONE contact)
 
 ```
-type: "add_mute"
-plugins: { mute: { status: true, gapTime: 60 } }
-options: { gotoFlow: { flowId: "farewell-flow-uuid" } }
+type: "add_mute", plugins: { mute: { status: true, gapTime: 60 } }, options: { gotoFlow: "<farewell flow uuid>" }
 ```
 
-Mutes the INDIVIDUAL contact, not the whole bot. `gapTime` = minutes until auto-unmute.
+`gotoFlow` is a **string uuid**, not `{ flowId }`. `gapTime` = minutes until auto-unmute.
 
-### add_intent — AI semantic routing (lighter-weight than add_chatpdf rules)
+### add_intent — AI semantic routing
 
 ```
 type: "add_intent"
-plugins: {
-  intent: {
-    rules: [{
-      conditionRule: "The user wants to talk to a human",
-      conditionFlowId: "<target-flow-uuid>",
-      condition: "",
-      conditionValue: ""
-    }]
-  }
-}
+plugins: { intent: { rules: [{ conditionRule: "The user wants to talk to a human", condition: "===", conditionValue: "", conditionFlowId: "<uuid>" }] } }
 ```
 
-### add_google_calendar — Native appointment scheduling
+`condition` must be a real operator (`"==="`), never `""`.
 
-BBC Cloud has a first-class Google Calendar answer that checks availability in real time and routes conditionally — no Apps Script bridge needed for the calendar lookup itself.
+### add_structured_output — silent typed extraction
 
 ```
-type: "add_google_calendar"
-plugins: {
-  calendar: {
-    calendarId: "your-calendar-id@group.calendar.google.com",
-    durationMinutes: 60,
-    rules: {
-      available:    { flowId: "<confirm-appointment-flow-uuid>" },
-      unavailable:  { flowId: "<next-available-slot-flow-uuid>" },
-      missingInfo:  { flowId: "<ask-for-date-flow-uuid>" }
-    }
-  }
-}
+type: "add_structured_output", ref: "lead"
+plugins: { structuredOutput: { properties: [
+  { key: "nombre", type: "string", promptKey: "Nombre del cliente" },
+  { key: "fecha",  type: "string", promptKey: "Fecha deseada" } ] } }
 ```
 
-Use case: the AI captures a desired date/time → this answer queries the calendar → routes to one of three follow-up flows depending on the outcome.
+Sends no bubble. Put it first in the flow a rule routes to; each value is stored as `{ref}_{clave}` → `{lead_nombre}` for the next steps.
 
-### Capture rule
+### add_google_calendar — native appointment scheduling
 
-`options.capture = true` → bot waits for user reply, passes it to NEXT answer.
-**NEVER set capture=true on the LAST answer** of a flow — the value is silently lost.
+```
+type: "add_google_calendar", message: ""
+plugins: { scheduleGoogleCalendar: { action: "create", calendarId: "xyz@group.calendar.google.com", durationMeeting: 60 } }
+rules: [
+  { conditionRule: "available",     condition: "===", conditionValue: "", conditionFlowId: "<confirm uuid>" },
+  { conditionRule: "not_available", condition: "===", conditionValue: "", conditionFlowId: "<offer-slot uuid>" },
+  { conditionRule: "misunderstood", condition: "===", conditionValue: "", conditionFlowId: "<ask-date uuid>" } ]
+```
 
-For structured multi-field capture (e.g. name → phone → email), use the `_capture_conditional_` trigger pattern documented in `references/learned-patterns.md`.
+There is **no** `plugins.calendar`. Outcomes are `available | not_available | misunderstood`, routed with top-level rules. Set the project `timeZone` first.
 
 ### Redirect
 
-`options.gotoFlow = { flowId: "<target-flow-uuid>" }` → redirect after this answer.
+`options.gotoFlow: "<target flow uuid>"` → jump after this answer. `validate_bot` marks a jump to a missing flow critical.
 
 ---
 
-## ROUTING FROM `add_chatpdf` RULES {#routing-from-add_chatpdf-rules}
+## SYSTEM VARIABLES
 
-**This is the pattern that unlocks multi-action AI bots and replaces the old `EVENTS.ACTION` workaround.**
-
-The AI in `add_chatpdf` produces a normal conversational reply. While generating that reply, BBC scans `plugins.openai.rules`: if the AI's text matches any rule, the bot **goes to that flow** after sending the reply, carrying the AI's text in `{aiResponse}`.
-
-```
-EVENTS.WELCOME flow
-       │
-       ▼
-  add_chatpdf  ← has plugins.openai.rules: [
-       │           { contains "PEDIDO CONFIRMADO" → flow "Save Order" },
-       │           { contains "COMPROBANTE RECIBIDO" → flow "Save Payment" },
-       │           { contains "AGENDAR CITA" → flow "Calendar Check" },
-       │         ]
-       │
-       │ AI naturally says: "Tu pedido quedó así: ... PEDIDO CONFIRMADO ✅"
-       ▼
-  Match → goto "Save Order" flow
-       │
-       ▼
-  add_http POST https://script.google.com/.../exec
-           body: { pedido: "{aiResponse}", numero: "{from}" }
-```
-
-**Design principles:**
-
-1. Teach the AI in its `assistantInstructions` to emit a specific marker phrase whenever an action should fire ("PEDIDO CONFIRMADO", "DERIVAR A SOPORTE", "COMPROBANTE RECIBIDO"). Keep markers in uppercase and uncommon enough to never collide with natural conversation.
-2. Each action gets its OWN flow with a custom label (e.g. `_save_order_`, `_save_payment_`) — these labels never collide with `EVENTS.*`.
-3. The destination flow typically does an `add_http` to a backend (Apps Script, your API) using `{aiResponse}` as the payload.
-4. There is no hard limit on the number of rules. The Sorelle/Freddy production pattern routinely uses 3–6 rules from a single `add_chatpdf`.
-
-**Why not just use `EVENTS.ACTION`?** Because only ONE flow can carry the literal `EVENTS.ACTION`. The moment you need two actions (save order + save payment), the second collides silently. Routing from `add_chatpdf` rules is the supported way to scale.
-
----
-
-## SYSTEM VARIABLES (Available in messages, HTTP bodies, and prompts)
-
-| Variable | Meaning | Where it works |
+| Variable | Meaning | Where |
 | --- | --- | --- |
-| `{from}` | The contact's WhatsApp number | All answer types |
-| `{aiResponse}` | The full text the AI just generated in the preceding `add_chatpdf` | Flows reached via `plugins.openai.rules` routing — typically as the payload of an `add_http` |
-| `{name}` | Contact's WhatsApp display name (if available) | All answer types |
-| `{time}` | Current server time, 24h `HH:mm` | `assistantInstructions`, message bodies |
-| `{date}` | Current server date | `assistantInstructions`, message bodies |
-| `{fullDate}` | Full timestamp | `assistantInstructions`, message bodies |
-
-**Warning on time-zone correctness:** `{time}`, `{date}`, and `{fullDate}` use the BBC server's clock, not the business's local timezone. For schedule-sensitive logic (open/closed, after-hours pricing rules), prefer an `add_http` GET to an Apps Script endpoint that does `Utilities.formatDate(new Date(), "America/Santiago", ...)` and returns `{ open: true/false, message: "..." }`. See `references/learned-patterns.md` → "Time-window validation" for the full Sorelle pattern.
+| `{from}` | Contact's WhatsApp number | All answer types |
+| `{name}` | Contact's display name (if available) | All answer types |
+| `{aiResponse}` | Text the AI just generated in the preceding `add_chatpdf` | Flows reached via top-level `rules`, typically an `add_http` body |
+| `{time}` `{date}` `{fullDate}` | Current server time/date (24h `HH:mm`). Calendar and reminder steps use the project `timeZone`; for open/closed logic in a message, prefer an `add_http` to a TZ-aware backend | `assistantInstructions`, messages |
+| `{ref}_{clave}` | Fields an `add_structured_output` extracted (`{lead_nombre}`) | Steps after the extraction |
 
 ---
 
-## OUTBOUND MESSAGING REST API (Bot → contact, server-initiated)
+## OUTBOUND MESSAGING REST API (backend → contact)
 
-The MCP tools cover **building** bots. To send a message FROM your backend INTO an existing conversation (order updates, payment confirmations, proactive notifications), use the BBC Cloud REST API:
-
-```
-POST https://app.builderbot.cloud/api/v2/{projectId}/messages
-Headers:
-  Content-Type: application/json
-  x-api-builderbot: <your-api-key>
-Body:
-{
-  "messages": { "content": "Your message text here" },
-  "number": "584246743207",       // E.164 without "+"
-  "checkIfExists": false
-}
-```
-
-Typical callers: an Apps Script web app receiving a webhook from the bot, or a separate panel sending broadcasts. This is NOT a tool in this MCP — it's a plain HTTP call your backend makes.
-
-Before sending outbound messages, skip numbers already blocked on the project:
-
-```
-builderbot_blacklist(action='list', projectId)
-builderbot_blacklist(action='add', projectId, phones: ["5491123456789"])
-builderbot_blacklist(action='remove', projectId, phones: ["5491123456789"])
-```
-
-`phones` is required for add/remove (non-empty array). Numbers are stored as plain strings — the API does not normalize E.164. This is the Cloud project blacklist (spam/abuse), not the `add_blacklist` flow-node answer type (that node is not an MCP tool).
+Not an MCP tool; a plain HTTP call your backend makes: `POST https://app.builderbot.cloud/api/v2/{projectId}/messages` with header `x-api-builderbot: <api key>` and body `{ "messages": { "content": "..." }, "number": "584246743207", "checkIfExists": false }` (E.164 without "+"). Skip numbers in `builderbot_blacklist(action='list')` first.
 
 ---
 
-## DECISION TREE: Which Pattern to Use
+## DECISION TREE
 
 ```
-User request → What type of business?
-├── Needs appointments/citas/availability → Pattern 2 (AI) + add_google_calendar ★ RECOMMENDED
-├── Needs Q&A about products/services    → Pattern 2 (AI)
-├── Needs order tracking/status          → Pattern 2 (AI) + HTTP
-├── Multi-step transactional (order + pay + confirm) → Pattern 2 + chatpdf rules + multiple action flows
-├── Simple info (hours, location, menu)  → Pattern 1 (keyword-based) OK
-├── Lead generation / qualification      → Pattern 2 (AI) + _capture_conditional_
-└── Human handoff / escalation           → Pattern 2 (AI) + add_mute
+Appointments / citas / availability → Pattern 2 (AI) + add_google_calendar ★
+Q&A about products or services      → Pattern 2 (AI)
+Order tracking / status             → Pattern 2 (AI) + add_http
+Order + pay + confirm               → Pattern 2 + top-level rules → one action flow per marker
+Simple static info (hours, address) → Pattern 1 (keyword → add_text)
+Lead qualification                  → Pattern 2 (AI) + add_structured_output
+Human handoff                       → Pattern 2 (AI) + add_mute
 ```
 
-**DEFAULT**: Pattern 2 (AI-powered with `add_chatpdf`) for 80% of real cases.
-Only use pure keyword → text flows for very simple, static information.
+**DEFAULT**: Pattern 2 (`add_chatpdf`) for 80% of real cases.
 
----
+### Vertical sketches
 
-## PATTERN TEMPLATES BY VERTICAL
-
-### Salon / Beauty / Services
-
-* WELCOME: `add_chatpdf` with services, prices, hours, booking guidance
-* `plugins.openai.rules`: marker "AGENDAR CITA" → calendar verification flow
-* Calendar flow: `add_google_calendar` with available/unavailable/missingInfo branches
-* Escalation: marker "DERIVAR A AGENTE" → `add_mute` flow
-
-### Restaurant / Food (Pizzería pattern)
-
-* PRE-WELCOME: `add_http` GET to GAS `/horario` (returns `{open, message}` in the local TZ) — branches with `rules`
-* WELCOME (only if open): `add_chatpdf` with menu, combos, delivery info
-* `plugins.openai.rules`: markers "PEDIDO CONFIRMADO" → save-order flow; "COMPROBANTE RECIBIDO" → save-payment flow
-* Image flow: `EVENTS.MEDIA` with `interpretImage: true` + `assistantInterpretMultimedia: true` for payment-receipt OCR
-
-### E-commerce / Store
-
-* WELCOME: `add_chatpdf` with catalog, pricing, shipping
-* Order status: marker "CONSULTAR ESTADO" → flow that does `add_http` GET to order API
-* Image: vision-based product identification from a photo (catalog must be loaded in `assistantInstructions`)
-
-### Content Creator / Digital Products
-
-* WELCOME: `add_chatpdf` with product catalog, pricing
-* Purchase: marker "GENERAR LINK DE PAGO" → flow that returns checkout URL
-* Support: AI handles FAQ; marker "ESCALAR" triggers human handoff
-
-### Forum / Event
-
-* WELCOME: `add_chatpdf` with event details, schedule, registration
-* Registration: `_capture_conditional_` for structured data + `add_http` POST to registration API
+* **Salon / services:** WELCOME `add_chatpdf` (services, prices, hours) with rule "AGENDAR CITA" → calendar flow (`add_google_calendar`, three outcome flows); "DERIVAR A AGENTE" → `add_mute` flow.
+* **Restaurant / food:** WELCOME `add_chatpdf` (menu, delivery) with rules "PEDIDO CONFIRMADO" → `add_http` POST order; "COMPROBANTE RECIBIDO" → save-payment flow. `EVENTS.MEDIA` flow with `interpretImage: true` + `assistantInterpretMultimedia: true` for receipts.
+* **Store / e-commerce:** WELCOME `add_chatpdf` (catalog, shipping); "CONSULTAR ESTADO" → `add_http` GET order API.
+* **Creator / event:** WELCOME `add_chatpdf` (schedule, pricing); "GENERAR LINK DE PAGO" → checkout flow; registration = `add_structured_output` + `add_http` POST.
 
 ---
 
 ## COMPLETE WORKFLOW: Building a Bot
 
-### Step 1: Get or Create Project
+### Step 1: Project and settings
 
 ```
-builderbot_project(action='list')
-├── Project exists → use its uuid as projectId
-└── Need new → builderbot_project(action='create', name) → builderbot_project(action='list') → VERIFY
+builderbot_project(action='list') → existing uuid, or builderbot_project(action='create', name) → list → VERIFY
+builderbot_project(action='settings', projectId) → if the business is not in that timeZone (or it is empty), set it
 ```
 
-### Step 2: Plan Flows
+### Step 2: Plan
 
-Before creating anything, plan all flows and share the plan with user:
+Before creating anything, write the plan in your reply under this exact heading, as plain Markdown (no code block). The panel turns it into a checklist and ticks each row when the matching write finishes — **never tick a box yourself**, leave every row `- [ ]`:
 
-```
-📋 Bot Plan: [Business Name]
-├── welcome (EVENTS.WELCOME) — AI assistant with business context + N routing rules
-├── _action_save_order_  — triggered by AI marker "PEDIDO CONFIRMADO"
-├── _action_save_payment_ — triggered by AI marker "COMPROBANTE RECIBIDO"
-├── escalation (keyword: "agente", "humano") — human handoff
-└── Total: N flows
-```
+### Plan
+- [ ] flow: Bienvenida (EVENTS.WELCOME, IA)
+- [ ] answer: Bienvenida — add_chatpdf
+- [ ] flow: Guardar pedido (_save_order_)
+- [ ] answer: Guardar pedido — add_http
 
-### Step 3: Create Flows (one at a time)
+One `flow:` row per flow and one `answer:` row per answer, in the order you will create them.
 
-For EACH flow:
+### Step 3: Create flows (one at a time)
 
 ```
-1. create_flow(projectId, name, label, keywords, ...)
-2. list_flows(projectId) → VERIFY flow exists, get flow_id
-3. create_answer(projectId, flowId, type, message, ...)
-4. list_answers(projectId, flowId) → VERIFY answer exists
-5. [If add_chatpdf] update_answer with plugins.openai.{assistantName, assistantInstructions, rules}
-6. list_answers(projectId, flowId) → VERIFY instructions and rules set
+1. create_flow(...)               → list_flows → VERIFY, keep the flow uuid
+2. create_answer(...)             → list_answers → VERIFY (an add_chatpdf comes back with assistantId)
+3. next flow. Destination flows before the chatpdf that routes to them.
 ```
 
-**NEVER create all flows first then add answers. Create flow → add answers → verify → next flow.**
-
-**For `add_chatpdf` rules:** the rules reference `conditionFlowId` of OTHER flows. Build the destination flows FIRST so you have their UUIDs, then add the rules to the chatpdf last via `update_answer`.
+**NEVER create all flows first and add answers later.** Flow → answers → verify → next flow.
 
 ### Step 4: Validate
 
 ```
 validate_bot(projectId)
-├── criticalCount = 0 → Ready to deploy
-└── criticalCount > 0 → Fix issues first
-    ├── Dead ends → add answers to empty flows
-    ├── Long messages → shorten to ≤160 chars
-    ├── Dangling capture → remove capture from last answer
-    └── Missing WELCOME → create welcome flow
+├── criticalCount = 0 → ready to deploy
+└── criticalCount > 0 → fix first: dead ends (empty flows), dangling capture, missing WELCOME,
+    add_chatpdf sharing a flow, event flags, broken gotoFlow/rule targets, media without URL, add_http without url
 ```
 
 ### Step 5: Deploy (with GATE)
 
 ```
-1. validate_bot(projectId) → MUST pass (criticalCount = 0)
-2. Show deployment summary to user:
-   ┌─────────────────────────────┐
-   │ 📤 DEPLOY SUMMARY          │
-   │ Project: [name]            │
-   │ Flows: N                    │
-   │ Answers: M                  │
-   │ Validation: ✅ PASS        │
-   │ Confirm? [yes/no]          │
-   └─────────────────────────────┘
-3. Wait for user confirmation
-4. deploy(projectId, action: "create")
-5. deploy(projectId, action: "status") → check status
-6. If READY_TO_SCAN → deploy(projectId, action: "qr") → show QR
-7. After CONNECTED → builderbot_sanity_check(projectId). If unhealthy → builderbot_read_logs(projectId)
+1. validate_bot → criticalCount = 0
+2. One sentence: what goes live (bot name, N flows, validation passed). Ask for a yes.
+3. WhatsApp not connected yet → send the person to [Conexión Rápida](/project/<uuid>/deploy/meta)
+   (they sign in with Meta; you cannot do it). Wait until they say it is done.
+4. deploy(action='create') → deploy(action='status')
+5. READY_TO_SCAN only on a legacy WhatsApp QR project → deploy(action='qr') → show QR
+6. ONLINE → builderbot_sanity_check(projectId). Unhealthy → builderbot_read_logs(projectId)
 ```
+
+**WhatsApp QR is retired** for new bots. New WhatsApp = **Conexión Rápida** (official Meta). Never explain "Dispositivos vinculados → QR"; if asked for the QR, say it was replaced.
 
 ---
 
-## DEPLOY STATUS DIAGNOSTICS
-
-`deploy(projectId, action: "status")` returns one of:
+## DEPLOY STATUS
 
 | Status | Meaning | Action |
 | --- | --- | --- |
-| `CONNECTED` | Bot is live and receiving messages | Nothing — this is "prendido" ✅ |
-| `READY_TO_SCAN` | Deployed, waiting for WhatsApp QR scan | Call `deploy(action: "qr")` and present the QR |
-| `INITIALIZATION` | Spinning up | Wait and re-check status in ~30s |
-| `FAILED` | Deploy crashed | Inspect logs in panel; redeploy or contact support |
+| `ONLINE` | Bot is live and receiving messages | Nothing — this is "prendido" |
+| `READY_TO_SCAN` | Legacy WhatsApp QR project waiting for a scan | `deploy(action='qr')`; recommend Conexión Rápida |
+| `INITIALIZATION` | Spinning up | Re-check status in ~30 s |
+| `FAILED` | Deploy crashed | `builderbot_read_logs`; `deploy(action='reboot')` or support |
 
-**Auditing "how many bots are on?":** `builderbot_project(action='list')`, then `builderbot_deploy(action='status')` for each. Only `CONNECTED` counts as live. Use `builderbot_sanity_check` on live bots before blaming flow design.
-
----
-
-## ERROR HANDLING FRAMEWORK
-
-### Common Failures & Recovery
-
-| Error | Diagnosis | Recovery |
-| --- | --- | --- |
-| Flow created but not in list | Silent failure / API lag | Retry create, verify again |
-| "Limit reached" | 50/50 flows used | List flows, find unused, offer to delete |
-| Duplicate keyword | Keyword conflict | list_flows to find conflict, rename to a custom label |
-| Two flows with `EVENTS.ACTION` | Event collision — only one fires | Change one to a custom label `_action_xxx_`, route to it via add_chatpdf rule |
-| Answer > 160 chars | WhatsApp truncation | Shorten message, verify |
-| Deploy fails | Validation issues | Run validate_bot, fix all criticals |
-| add_chatpdf + add_text in same flow | Double-response bug | Delete the add_text answer |
-| capture=true on last answer | Dangling capture | Remove capture or add follow-up answer |
-| Flow exists but has 0 answers | Assistant was deleted (panel mishap) | Recreate the `add_chatpdf` with full `plugins.openai.assistantInstructions` |
-| `BuilderBot API key required` | MCP connector lost its key | User reconnects BBC MCP TOOL in Claude → Settings → Connectors |
-| `unknown_tool` / retired name | Cached `tools/list` or this skill was stale | Retry with the `hint` (`builderbot_project` / `builderbot_deploy` + `action`). Do not loop |
-
-### Batch Operations: Sequential with Verification
-
-When creating multiple flows, ALWAYS do them sequentially:
-
-```
-FOR EACH flow in plan:
-  1. create_flow → VERIFY
-  2. create_answer(s) → VERIFY each
-  3. [configure AI if needed] → VERIFY
-  THEN next flow
-```
-
-NEVER batch-create all flows then batch-add answers. This hides partial failures.
+**"How many bots are on?":** `builderbot_project(action='list')`, then `builderbot_deploy(action='status')` per project. Only `ONLINE` counts.
 
 ---
 
 ## FINAL REPORT FORMAT
 
-After completing bot creation, always provide:
+Plain Markdown (no code block, no ids, no tool names, no emoji headers):
 
-```
-📊 BOT REPORT: [Project Name]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Project ID: [uuid]
+1. One sentence with the outcome: the bot is ready, or what is still missing.
+2. A table `| Flujo | Se activa con | Mensajes |`, triggers in plain words ("al saludar", "palabra «precio»").
+3. If an AI answer routes to flows, one bullet per rule: what the customer says → which flow.
+4. Validation in one line (passed, or the warnings that matter). Problems you fixed, one bullet each.
+5. Next step: WhatsApp connected and live, or link [Conexión Rápida](/project/<uuid>/deploy/meta).
 
-✅ Flows Created:
-  1. [flow_name] (id: [uuid]) — [N] answers — [type summary]
-  2. ...
+## FORMATTING FOR THE CHAT PANEL (~420px, Markdown)
 
-🔀 add_chatpdf routing rules:
-  • "MARKER_1" → [destination_flow_name]
-  • "MARKER_2" → [destination_flow_name]
-
-⚠️ Issues Fixed:
-  • [description of any issues encountered and resolved]
-
-🔍 Validation: [PASS/FAIL]
-  • Criticals: 0
-  • Warnings: [N]
-
-📤 Deploy Status: [CONNECTED / READY_TO_SCAN / INITIALIZATION / FAILED / NOT YET]
-
-🔗 Tool Call Trace:
-  [list of all tool calls made in order]
-```
+- Lists or tables of bots: in-app link in the FIRST cell, id from the tool (never invented): `| [BOT VETERINARIA](/project/<id>) | 7 oct 2026 | 0 |`.
+- Section title = a line that is only bold text, no final period. ≤8 bullets per group; tables 2–4 columns, ≤10 rows.
+- Dozens of results: total, the 8 most recent, a filter offer. No uuids or JSON unless asked. End with at most one question.
 
 ---
 
 ## ANTI-PATTERNS (Never Do These)
 
-1. ❌ Creating a flow without immediately adding answers
-2. ❌ Reporting success without verification (`builderbot_project action='list'`, `list_flows`, or `list_answers`)
-3. ❌ Deleting without showing impact and getting confirmation
-4. ❌ Deploying without running `validate_bot` first
-5. ❌ Mixing `add_chatpdf` and `add_text` in the same flow
-6. ❌ Setting `listenKeywords: true` on non-VOICE_NOTE flows
-7. ❌ Setting `capture: true` on the last answer of a flow
-8. ❌ Batch-creating all flows before adding answers
-9. ❌ Ignoring validation warnings about message length (>160 chars)
-10. ❌ Creating `add_http` answers without `plugins.http.rules` (even `[]` is fine)
-11. ❌ Putting `EVENTS.ACTION` on more than one flow — use custom labels routed from `add_chatpdf` rules instead
-12. ❌ Trusting `{time}`/`{date}` for business-hours logic when the business isn't in the BBC server timezone — use an `add_http` to a TZ-aware backend
-13. ❌ Putting assistant instructions in `message` instead of `plugins.openai.assistantInstructions`
-14. ❌ Calling `builderbot_list_projects` or `builderbot_create_project` — those tools were removed; use `builderbot_project` with `action`
-15. ❌ Sending the user to the Cloud panel or a homemade Apps Script list to block spam — use `builderbot_blacklist`
-
----
-
-## REFERENCES
-
-For deeper patterns and worked examples, read:
-
-* `references/verticals.md` — Detailed bot templates per business type
-* `references/advanced-patterns.md` — HTTP integrations, multi-flow routing, knowledge base setup
-* `references/learned-patterns.md` — Production patterns: chatpdf rules as router, `{aiResponse}` pipe to backend, time-window validation via TZ-aware GAS, image-as-payment-proof workflow, deleted-assistant recovery. v2.2: project tool unification.
+1. Creating a flow without immediately adding answers
+2. Reporting success without verification
+3. Deleting without showing impact and getting confirmation
+4. Deploying without `validate_bot` first
+5. Mixing `add_chatpdf` with any other answer in the same flow
+6. `listenKeywords: true` on non-VOICE_NOTE flows
+7. `capture: true` on the last answer of a flow
+8. Batch-creating all flows before adding answers
+9. `rules` inside `plugins.openai`; `media: { url }`; `gotoFlow: { flowId }`; `plugins.calendar`; `type: "text"` — all rejected with `validation_error`
+10. Creating `add_http` without `plugins.http.rules` (`[]` is fine)
+11. Resending a payload that returned `validation_error` without changing it, or creating a second `add_chatpdf` after `assistant_provision_failed`
+12. Building calendar or reminder flows before setting the project `timeZone`
+13. Putting assistant instructions in `message` instead of `plugins.openai.assistantInstructions`
+14. Calling `builderbot_list_projects` / `builderbot_create_project` — removed; use `builderbot_project` with `action`
+15. Sending the person to the Cloud panel or a homemade list to block spam — use `builderbot_blacklist`
