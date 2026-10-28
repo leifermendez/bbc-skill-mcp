@@ -1,13 +1,15 @@
 ---
 name: bbc-skill-tool
-description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.4. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, project settings, zona horaria, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check, builderbot_blacklist, block spam numbers, lista negra. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
+description: "Builds, manages, and troubleshoots WhatsApp bots using the BuilderBot Cloud (BBC) MCP Tool v2.5. Covers bot creation for businesses needing appointment booking, citas, escalation, and conversational AI. Enforces verification after every mutation, destructive action gates, error recovery, and pre-deploy validation. USE FOR: BuilderBot, BBC, WhatsApp bot, bot para WhatsApp, MCP tool, builderbot, flow, deploy bot, QR code, crear bot, chatbot, bot creation for businesses (restaurant, salon, store, services, rental, creators, forum, tech support), debugging bot behavior, voice/image/document handling, notifications, structured data capture, managing BBC projects, project settings, zona horaria, add_chatpdf routing rules, AI-to-flow routing, outbound messaging API, Google Calendar appointments, deploy status diagnostics, builderbot_docs, builderbot_sanity_check, builderbot_blacklist, block spam numbers, lista negra, webhook, URL de eventos, plantillas de WhatsApp, WhatsApp template, plantilla Meta, HSM, WhatsApp Flows, formulario de WhatsApp, builderbot_webhook, builderbot_whatsapp_template, builderbot_whatsapp_flow. Pattern 2 (AI-powered) is the DEFAULT for 80% of real-world cases."
 activation:
   # Charged when the body is at most twice this (≤7020 tokens, agentSkillBudget.spec).
   # 3510 + bbc-behavior 1750 fits the 6000 turn budget. Do not lower it.
   max_context_tokens: 3510
 ---
 
-# BBC MCP Tool v2.4 — Safe-by-Default WhatsApp Bot Builder
+# BBC MCP Tool v2.5 — Safe-by-Default WhatsApp Bot Builder
+
+> **v2.5 changelog (vs v2.4):** Three new tools: `builderbot_webhook`, `builderbot_whatsapp_template`, `builderbot_whatsapp_flow` (see "Webhook, WhatsApp templates and Flows"). Publishing a Flow and deleting a template are gated: the tool answers `confirmation_required` until `confirm: true`, which you set only after the person's explicit yes.
 
 > **v2.4 changelog (vs v2.3):** Inputs are now **strict**: a wrong shape returns `code: "validation_error"` with the failing paths and a hint per mistake — it is no longer dropped silently. Shapes fixed in this version: routing `rules` live at the **top level** of the answer (never under `plugins.openai`); `options.media` and `options.gotoFlow` are **strings**; Google Calendar is `plugins.scheduleGoogleCalendar` + top-level outcome rules; `add_intent` rules need a real operator. `add_chatpdf` is created in **one call** (the platform provisions the assistant). New `builderbot_project action='settings'` (time zone, channel). `EVENTS.ACTION` and `EVENTS.IG_COMMENT` may repeat. Deploy statuses are `INITIALIZATION | READY_TO_SCAN | ONLINE | FAILED`.
 
@@ -39,6 +41,9 @@ activation:
 | `builderbot_blacklist` | Blocked phones: `list` \| `add` \| `remove`. `phones` required for add/remove; stored as-is (no E.164) | `add`/`remove` yes |
 | `builderbot_sanity_check` | Runtime health of a deployed bot | No |
 | `builderbot_read_logs` | Container logs; `lines` 1–500 (default 200), returns `returned`/`total`/`truncated` | No |
+| `builderbot_webhook` | Event webhook of the project: `get` \| `set` \| `disable`. `set` needs `url` | `set`/`disable` yes |
+| `builderbot_whatsapp_template` | Meta templates: `list` \| `get` \| `create` \| `delete`. `create` goes to Meta review | `create`/`delete` yes; `delete` is DESTRUCTIVE (`confirm=true`) |
+| `builderbot_whatsapp_flow` | WhatsApp Flows: `list` \| `get` \| `create` (DRAFT) \| `publish` \| `retire` | `create`/`publish`/`retire` yes; `publish` is IRREVERSIBLE (`confirm=true`) |
 | `builderbot_docs` | Official API reference: `search` \| `get` \| `list`. Honor `coverage`: only call the named MCP tool; `not_exposed` is REST-only | No |
 
 **Retired names (do not call):** `builderbot_list_projects` → `builderbot_project action='list'`. `builderbot_create_project` → `builderbot_project action='create'`. `builderbot_get_qr` → `builderbot_deploy action='qr'`. If a call returns `code: "unknown_tool"`, retry once with the `hint`.
@@ -46,6 +51,31 @@ activation:
 ### Project settings
 
 `builderbot_project(action='settings', projectId)` returns `{ provider, timeZone, phoneNumber, rejectCalls, showTypingEvents, showRecordingEvents }`. Pass `settings: {...}` with the fields to change. `timeZone` is an IANA name (`America/Mexico_City`); `provider` ∈ `baileys | baileys_code | telegram | meta | gohighlevel | gohighlevel_bridge | facebook | instagram | webchat`. API keys are never returned. **Set the time zone before building calendar or reminder flows** — appointment slots and reminders are computed in it.
+
+### Webhook, WhatsApp templates and Flows
+
+All three take `projectId` + `action`. Templates and Flows need the project connected through Meta (Conexión Rápida); if the call is refused for that, tell the person to connect first.
+
+* **`builderbot_webhook`**: `set` with `url` (https) sends every bot event as a POST with a JSON body. `headers: [{ key, value }]` are sent with each event; omit `headers` to **keep** the stored ones, `[]` removes them. Values come back as `[hidden]`. `disable` stops events. VERIFY with `get`.
+* **`builderbot_whatsapp_template`**: `create` submits to **Meta review**; it is not usable until `APPROVED`, so never promise it. After `create`, run `get` and report the real status (`PENDING`, `APPROVED`, `REJECTED`). `name` is lowercase letters, digits and `_`; `language` defaults to `es`; `category` is `MARKETING | UTILITY | AUTHENTICATION`. Exactly one `BODY` (≤1024 chars; header and footer ≤60; button text ≤25). Every `{{n}}` variable needs example values or Meta rejects it. A `FLOW` button needs the `flow_id` of a **published** Flow.
+* **`builderbot_whatsapp_flow`**: `create` uploads a **DRAFT** (`name`, `categories`, `flowJson` as an object, not text). `publish` freezes it: it can never be edited or deleted again, only deprecated with `retire`. Use `version: "7.3"`; the simplest valid Flow is one terminal screen whose `Footer` runs `complete`, so the answers reach the bot without an endpoint. Do not set `publish: true` on `create` unless the person asked to publish.
+
+```
+builderbot_whatsapp_template { projectId, action: "create", name: "recordatorio_cita", language: "es", category: "UTILITY",
+  components: [
+    { type: "BODY", text: "Hola {{1}}, tu cita es el {{2}}.", example: { body_text: [["Ana", "lunes 10:00"]] } },
+    { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Confirmar" }] } ] }
+
+builderbot_whatsapp_flow { projectId, action: "create", name: "contacto", categories: ["CONTACT_US"],
+  flowJson: { version: "7.3", screens: [{ id: "CONTACTO", title: "Contacto", terminal: true, success: true, data: {},
+    layout: { type: "SingleColumnLayout", children: [
+      { type: "TextInput", name: "nombre", label: "Nombre", "input-type": "text", required: true },
+      { type: "Footer", label: "Enviar", "on-click-action": { name: "complete", payload: { nombre: "${form.nombre}" } } } ] } }] } }
+```
+
+**Order for a template with a Flow button:** `flow create` → `get` and show it → person says yes → `publish` with `confirm: true` → `template create` with `flow_id` → `template get` for the status. If `create` fails on the Flow JSON, the error lists what Meta rejected: fix those paths and resend, never the same JSON.
+
+Sending a template to a contact is **not** an MCP tool (REST, see below).
 
 ---
 
@@ -60,13 +90,16 @@ create_answer(...)                  → list_answers(projectId, flowId) → find
 update_answer(...)                  → list_answers(projectId, flowId) → confirm the change
 delete_flow(...)                    → list_flows(projectId) → confirm it is gone
 builderbot_blacklist(add|remove)    → builderbot_blacklist(action='list') → confirm phones
+builderbot_webhook(set|disable)     → builderbot_webhook(action='get') → confirm url / headers
+whatsapp_template(create|delete)    → whatsapp_template(action='get'|'list') → report Meta's status
+whatsapp_flow(create|publish|retire)→ whatsapp_flow(action='get') → confirm status
 ```
 
 If verification fails: STOP, report the discrepancy, diagnose, propose recovery.
 
 ### Pattern 2: GATE before destructive actions
 
-Before `delete_flow`, `delete_answer`, `deploy(action='delete')`, `builderbot_project(action='delete')`: show what is affected (flow name, answer count, references), say it cannot be undone, wait for the person's yes, then VERIFY and run `validate_bot` for broken references.
+Before `delete_flow`, `delete_answer`, `deploy(action='delete')`, `builderbot_project(action='delete')`, `builderbot_whatsapp_template(action='delete')`, `builderbot_whatsapp_flow(action='publish'|'retire')`: show what is affected (flow name, answer count, references), say it cannot be undone, wait for the person's yes, then VERIFY and run `validate_bot` for broken references.
 
 ### Pattern 3: RECOVER on failure
 
@@ -78,6 +111,7 @@ Before `delete_flow`, `delete_answer`, `deploy(action='delete')`, `builderbot_pr
 | `builderbot_api_payment_required` | 402: plan limit; message carries the billing URL | Tell the person the limit and the URL. Do not retry |
 | `deploy_qr_not_ready` | Status is not `READY_TO_SCAN` | Follow the hint (`ONLINE` = already linked; `INITIALIZATION` = poll status) |
 | `unknown_tool` | Retired name or cached tool list | Retry once with the `hint` |
+| `confirmation_required` | A destructive or irreversible action ran without `confirm: true` | Show what changes, ask for the person's yes, and only then resend with `confirm: true`. Never add it on your own to get past the error |
 | `BuilderBot API key required` | MCP connector lost its key | Person reconnects BBC MCP TOOL in Claude → Settings → Connectors |
 
 When the body is unclear, `builderbot_docs(action='search', query=...)` before guessing.
@@ -238,7 +272,7 @@ There is **no** `plugins.calendar`. Outcomes are `available | not_available | mi
 
 ## OUTBOUND MESSAGING REST API (backend → contact)
 
-Not an MCP tool; a plain HTTP call your backend makes: `POST https://app.builderbot.cloud/api/v2/{projectId}/messages` with header `x-api-builderbot: <api key>` and body `{ "messages": { "content": "..." }, "number": "584246743207", "checkIfExists": false }` (E.164 without "+"). Skip numbers in `builderbot_blacklist(action='list')` first.
+Not an MCP tool; a plain HTTP call your backend makes: `POST https://app.builderbot.cloud/api/v2/{projectId}/messages` with header `x-api-builderbot: <api key>` and body `{ "messages": { "content": "..." }, "number": "584246743207", "checkIfExists": false }` (E.164 without "+"). Skip numbers in `builderbot_blacklist(action='list')` first. Sending an approved **template** is the same REST family (`builderbot_docs(action='search', query='whatsapp-template')` gives the body).
 
 ---
 
@@ -369,3 +403,6 @@ Plain Markdown (no code block, no ids, no tool names, no emoji headers):
 13. Putting assistant instructions in `message` instead of `plugins.openai.assistantInstructions`
 14. Calling `builderbot_list_projects` / `builderbot_create_project` — removed; use `builderbot_project` with `action`
 15. Sending the person to the Cloud panel or a homemade list to block spam — use `builderbot_blacklist`
+16. Setting `confirm: true` without a yes from the person in this conversation, or publishing a Flow "to test it" (publishing is irreversible)
+17. Saying a template is ready, or using it as a `FLOW` button target, before Meta shows it `APPROVED` / the Flow is published
+18. Sending a template with `{{n}}` variables without `example` values, or a Flow `flowJson` as text with comments or trailing commas
