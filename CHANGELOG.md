@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.5 — Webhook, WhatsApp templates and Flows
+
+Adds the three tools `builderbot-mcp-http` registers for webhook and Meta assets (the server now exposes 19 tools).
+**Publish after that MCP is deployed.** Before then the agent would call tools the server does not have (`unknown_tool`).
+
+### Added
+
+- **`builderbot_webhook`** (`get` | `set` | `disable`): event webhook URL and headers. Omitting `headers` keeps the stored
+  ones, `[]` clears them; values are returned as `[hidden]`.
+- **`builderbot_whatsapp_template`** (`list` | `get` | `create` | `delete`): Meta templates. `create` goes to Meta review and
+  is usable only once `APPROVED`; `{{n}}` variables need `example` values; a `FLOW` button needs the `flow_id` of a published Flow.
+- **`builderbot_whatsapp_flow`** (`list` | `get` | `create` | `publish` | `retire`): WhatsApp Flows. `create` uploads a DRAFT
+  (`flowJson` as an object, version `7.3`); `publish` is irreversible.
+- **`confirmation_required`** in the recovery table: deleting a template and publishing or retiring a Flow need `confirm: true`,
+  set only after the person's explicit yes.
+- Frontmatter keywords so the skill activates on webhook, plantilla de WhatsApp, HSM and WhatsApp Flow requests.
+- Verify rows, gate entries and three anti-patterns for the new tools. A worked template and Flow example.
+
+### Not changed
+
+- Sending a template message stays REST (`builderbot_docs` returns the body); it is not an MCP tool.
+- `SKILL.md` keeps the `3510` token budget. The new text lives in `SKILL.md` itself: only that file reaches the gateway.
+
 ## v2.4 — Strict MCP answer contract, project settings & runtime guards
 
 Aligns the skill with `builderbot-mcp-http` `schemaVersion = 2`. Inputs are now
